@@ -1,25 +1,26 @@
 package main
 
 import (
-	"log"
 	"bytes"
-	"encoding/gob"
-	"crypto/sha256"
-	"encoding/hex"
 	"crypto/ecdsa"
-	"crypto/rand"
 	"crypto/elliptic"
-	"math/big"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/gob"
+	"encoding/hex"
 	"fmt"
+	"log"
+	"math/big"
 	"strings"
 )
+
 const subsidy = 100
+
 type Transaction struct {
 	ID   []byte
 	Vin  []TXInput
 	Vout []TXOutput
 }
-
 
 // String returns a human-readable representation of a transaction
 func (tx Transaction) String() string {
@@ -45,9 +46,6 @@ func (tx Transaction) String() string {
 	return strings.Join(lines, "\n")
 }
 
-
-
-
 // SetID sets ID of a transaction
 func (tx *Transaction) SetID() {
 	var encoded bytes.Buffer
@@ -61,6 +59,7 @@ func (tx *Transaction) SetID() {
 	hash = sha256.Sum256(encoded.Bytes())
 	tx.ID = hash[:]
 }
+
 // Hash returns the hash of the Transaction
 func (tx *Transaction) Hash() []byte {
 	var hash [32]byte
@@ -70,28 +69,19 @@ func (tx *Transaction) Hash() []byte {
 	return hash[:]
 }
 
-
-
-
-
 // NewCoinbaseTX creates a new coinbase transaction
-func NewCoinbaseTX(to ,data string) *Transaction {
-	txin := TXInput{[]byte{}, -1, nil,[]byte(data)}
+func NewCoinbaseTX(to, data string) *Transaction {
+	txin := TXInput{[]byte{}, -1, nil, []byte(data)}
 	txout := NewTXOutput(subsidy, to)
 	tx := Transaction{nil, []TXInput{txin}, []TXOutput{*txout}}
 	tx.ID = tx.Hash()
 	return &tx
 }
+
 // CanBeUnlockedWith checks if the output can be unlocked with the provided data
 func (out *TXOutput) CanBeUnlockedWith(pubKeyHash []byte) bool {
 	return bytes.Compare(out.PubKeyHash, pubKeyHash) == 0
 }
-
-
-
-
-
-
 
 // IsCoinbase checks whether the transaction is coinbase
 func (tx Transaction) IsCoinbase() bool {
@@ -99,17 +89,17 @@ func (tx Transaction) IsCoinbase() bool {
 }
 
 // NewUTXOTransaction creates a new transaction
-//根据发送者，接受者，金额，创建一笔新的交易NewUTXOTransaction（）
+// 根据发送者，接受者，金额，创建一笔新的交易NewUTXOTransaction（）
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain, nodeID string) *Transaction {
 	var inputs []TXInput
 	var outputs []TXOutput
 
-	wallets, err := NewWallets(nodeID)
+	wallet, err := NewWallet(nodeID)
 	if err != nil {
 		log.Panic(err)
 	}
-	wallet := wallets.GetWallet(from)
-	pubKeyHash := HashPubKey(wallet.PublicKey)
+	priKey := wallet.GetKey(from)
+	pubKeyHash := HashPubKey(pubKeyOf(priKey))
 	acc, validOutputs := bc.FindSpendableOutputs(pubKeyHash, amount)
 
 	if acc < amount {
@@ -124,7 +114,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain, nodeID stri
 		}
 
 		for _, out := range outs {
-			input := TXInput{txID, out, nil,wallet.PublicKey}
+			input := TXInput{txID, out, nil, pubKeyOf(priKey)}
 			inputs = append(inputs, input)
 		}
 	}
@@ -138,11 +128,9 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain, nodeID stri
 	tx := Transaction{nil, inputs, outputs}
 	//交易的哈希值
 	tx.SetID()
-	bc.SignTransaction(&tx, wallet.PrivateKey)
+	bc.SignTransaction(&tx, priKey)
 	return &tx
 }
-
-
 
 // Sign signs each input of a Transaction
 func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transaction) {
@@ -193,10 +181,8 @@ func (tx *Transaction) TrimmedCopy() Transaction {
 	return txCopy
 }
 
-
-
 // Verify verifies signatures of Transaction inputs
-//验证交易，传递的参数是交易的输入的id，代表引用的前一笔交易->输入的交易的结构体Transaction
+// 验证交易，传递的参数是交易的输入的id，代表引用的前一笔交易->输入的交易的结构体Transaction
 func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
 	if tx.IsCoinbase() {
 		return true
@@ -217,7 +203,6 @@ func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
 		txCopy.Vin[inID].Signature = nil
 		txCopy.Vin[inID].Pubkey = prevTx.Vout[vin.Vout].PubKeyHash
 
-
 		txCopy.ID = txCopy.Hash()
 		txCopy.Vin[inID].Pubkey = nil
 
@@ -233,7 +218,6 @@ func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
 		x.SetBytes(vin.Pubkey[:(keyLen / 2)])
 		y.SetBytes(vin.Pubkey[(keyLen / 2):])
 
-
 		fmt.Println(txCopy.String())
 		rawPubKey := ecdsa.PublicKey{curve, &x, &y}
 		if ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) == false {
@@ -242,7 +226,6 @@ func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
 	}
 	return true
 }
-
 
 // Serialize returns a serialized Transaction
 func (tx Transaction) Serialize() []byte {
@@ -257,7 +240,7 @@ func (tx Transaction) Serialize() []byte {
 	return encoded.Bytes()
 }
 
-//交易的反序列化
+// 交易的反序列化
 // DeserializeTransaction deserializes a transaction
 func DeserializeTransaction(data []byte) Transaction {
 	var transaction Transaction
